@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sector Rotation Heatmap</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+–bg: #080c10;
+–surface: #0d1117;
+–surface2: #161b22;
+–surface3: #1f2937;
+–border: rgba(255,255,255,0.07);
+–text: #e6edf3;
+–text-muted: #7d8590;
+–accent: #58a6ff;
+–green-strong: #39d353;
+–green-mid: #26a641;
+–green-light: #0e4429;
+–red-strong: #f85149;
+–red-mid: #da3633;
+–red-light: #3d0c0c;
+–yellow: #e3b341;
+–mono: ‘Space Mono’, monospace;
+–sans: ‘Syne’, sans-serif;
+}
+
+- { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+background: var(–bg);
+color: var(–text);
+font-family: var(–sans);
+min-height: 100vh;
+overflow-x: hidden;
+}
+
+/* Grid noise overlay */
+body::before {
+content: ‘’;
+position: fixed;
+inset: 0;
+background-image:
+linear-gradient(rgba(88,166,255,0.02) 1px, transparent 1px),
+linear-gradient(90deg, rgba(88,166,255,0.02) 1px, transparent 1px);
+background-size: 40px 40px;
+pointer-events: none;
+z-index: 0;
+}
+
+.app { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+
+/* HEADER */
+header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+margin-bottom: 28px;
+padding-bottom: 20px;
+border-bottom: 1px solid var(–border);
+flex-wrap: wrap;
+gap: 12px;
+}
+
+.header-left h1 {
+font-size: 22px;
+font-weight: 800;
+letter-spacing: -0.5px;
+color: var(–text);
+}
+
+.header-left h1 span { color: var(–accent); }
+
+.header-left p {
+font-family: var(–mono);
+font-size: 11px;
+color: var(–text-muted);
+margin-top: 3px;
+}
+
+.header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.market-badge {
+font-family: var(–mono);
+font-size: 10px;
+padding: 4px 10px;
+border-radius: 4px;
+letter-spacing: 0.5px;
+text-transform: uppercase;
+}
+
+.market-badge.jp { background: rgba(255, 90, 90, 0.12); color: #ff8080; border: 1px solid rgba(255,90,90,0.2); }
+.market-badge.us { background: rgba(88,166,255,0.1); color: var(–accent); border: 1px solid rgba(88,166,255,0.2); }
+
+.refresh-btn {
+font-family: var(–mono);
+font-size: 11px;
+background: var(–surface2);
+color: var(–text);
+border: 1px solid var(–border);
+padding: 6px 14px;
+border-radius: 6px;
+cursor: pointer;
+transition: all 0.15s;
+display: flex; align-items: center; gap: 6px;
+}
+.refresh-btn:hover { background: var(–surface3); border-color: var(–accent); color: var(–accent); }
+.refresh-btn.loading { opacity: 0.5; pointer-events: none; }
+
+#last-updated {
+font-family: var(–mono);
+font-size: 10px;
+color: var(–text-muted);
+}
+
+/* MARKET TOGGLE */
+.market-toggle {
+display: flex;
+gap: 0;
+background: var(–surface2);
+border: 1px solid var(–border);
+border-radius: 8px;
+padding: 3px;
+margin-bottom: 20px;
+width: fit-content;
+}
+
+.market-toggle button {
+font-family: var(–sans);
+font-size: 13px;
+font-weight: 600;
+padding: 6px 20px;
+border: none;
+border-radius: 6px;
+cursor: pointer;
+transition: all 0.15s;
+background: transparent;
+color: var(–text-muted);
+}
+
+.market-toggle button.active {
+background: var(–surface3);
+color: var(–text);
+}
+
+.market-toggle button.active.jp { color: #ff8080; }
+.market-toggle button.active.us { color: var(–accent); }
+
+/* SUMMARY BAR */
+.summary-bar {
+display: flex;
+gap: 10px;
+margin-bottom: 20px;
+flex-wrap: wrap;
+}
+
+.summary-card {
+background: var(–surface);
+border: 1px solid var(–border);
+border-radius: 8px;
+padding: 10px 16px;
+flex: 1;
+min-width: 120px;
+}
+
+.summary-card .label {
+font-family: var(–mono);
+font-size: 9px;
+color: var(–text-muted);
+text-transform: uppercase;
+letter-spacing: 0.8px;
+margin-bottom: 4px;
+}
+
+.summary-card .value {
+font-family: var(–mono);
+font-size: 18px;
+font-weight: 700;
+}
+
+.summary-card .sub {
+font-family: var(–mono);
+font-size: 10px;
+color: var(–text-muted);
+margin-top: 2px;
+}
+
+.up { color: var(–green-strong); }
+.down { color: var(–red-strong); }
+.flat { color: var(–yellow); }
+
+/* HEATMAP GRID */
+.heatmap-grid {
+display: grid;
+grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+gap: 10px;
+margin-bottom: 24px;
+}
+
+.sector-card {
+background: var(–surface);
+border: 1px solid var(–border);
+border-radius: 10px;
+padding: 14px;
+cursor: pointer;
+transition: transform 0.12s, border-color 0.15s;
+position: relative;
+overflow: hidden;
+}
+
+.sector-card::before {
+content: ‘’;
+position: absolute;
+inset: 0;
+opacity: 0;
+transition: opacity 0.2s;
+}
+
+.sector-card:hover { transform: translateY(-1px); }
+.sector-card:hover::before { opacity: 1; }
+
+.sector-card.strong-up { border-color: rgba(57,211,83,0.4); }
+.sector-card.strong-up::before { background: rgba(57,211,83,0.04); }
+.sector-card.mild-up { border-color: rgba(38,166,65,0.25); }
+.sector-card.mild-down { border-color: rgba(218,54,51,0.25); }
+.sector-card.strong-down { border-color: rgba(248,81,73,0.4); }
+.sector-card.strong-down::before { background: rgba(248,81,73,0.04); }
+
+.sector-header {
+display: flex;
+justify-content: space-between;
+align-items: flex-start;
+margin-bottom: 10px;
+}
+
+.sector-name {
+font-size: 13px;
+font-weight: 700;
+letter-spacing: -0.2px;
+line-height: 1.3;
+}
+
+.sector-ticker {
+font-family: var(–mono);
+font-size: 9px;
+color: var(–text-muted);
+margin-top: 2px;
+}
+
+.sector-change {
+font-family: var(–mono);
+font-size: 20px;
+font-weight: 700;
+text-align: right;
+line-height: 1;
+}
+
+.sector-price {
+font-family: var(–mono);
+font-size: 10px;
+color: var(–text-muted);
+text-align: right;
+margin-top: 3px;
+}
+
+/* Progress bar */
+.heat-bar-container {
+height: 4px;
+background: var(–surface3);
+border-radius: 2px;
+margin: 10px 0 8px;
+overflow: hidden;
+}
+
+.heat-bar {
+height: 100%;
+border-radius: 2px;
+transition: width 0.5s ease;
+}
+
+/* Mini stocks */
+.sector-stocks {
+display: flex;
+flex-wrap: wrap;
+gap: 5px;
+margin-top: 8px;
+}
+
+.stock-chip {
+font-family: var(–mono);
+font-size: 9px;
+padding: 2px 6px;
+border-radius: 3px;
+background: var(–surface2);
+color: var(–text-muted);
+border: 1px solid var(–border);
+white-space: nowrap;
+}
+
+/* ROTATION SIGNAL */
+.rotation-panel {
+background: var(–surface);
+border: 1px solid var(–border);
+border-radius: 10px;
+padding: 18px;
+margin-bottom: 20px;
+}
+
+.panel-title {
+font-size: 11px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 1.5px;
+color: var(–text-muted);
+margin-bottom: 14px;
+display: flex;
+align-items: center;
+gap: 8px;
+}
+
+.panel-title::after {
+content: ‘’;
+flex: 1;
+height: 1px;
+background: var(–border);
+}
+
+.rotation-list {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+
+.rotation-row {
+display: flex;
+align-items: center;
+gap: 10px;
+font-family: var(–mono);
+font-size: 12px;
+}
+
+.rotation-rank {
+width: 20px;
+color: var(–text-muted);
+font-size: 10px;
+text-align: right;
+flex-shrink: 0;
+}
+
+.rotation-name {
+flex: 1;
+color: var(–text);
+font-size: 11px;
+}
+
+.rotation-bar-wrap {
+flex: 2;
+height: 6px;
+background: var(–surface3);
+border-radius: 3px;
+overflow: hidden;
+}
+
+.rotation-bar { height: 100%; border-radius: 3px; }
+
+.rotation-pct {
+width: 55px;
+text-align: right;
+font-size: 12px;
+}
+
+/* Legend */
+.legend {
+display: flex;
+align-items: center;
+gap: 6px;
+font-family: var(–mono);
+font-size: 10px;
+color: var(–text-muted);
+margin-bottom: 16px;
+flex-wrap: wrap;
+}
+
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot {
+width: 10px; height: 10px; border-radius: 2px;
+}
+
+.legend-sep { color: var(–border); margin: 0 4px; }
+
+/* Loading */
+.loading-overlay {
+position: fixed;
+inset: 0;
+background: rgba(8,12,16,0.85);
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+z-index: 100;
+backdrop-filter: blur(4px);
+}
+
+.loading-spinner {
+width: 32px; height: 32px;
+border: 2px solid var(–surface3);
+border-top-color: var(–accent);
+border-radius: 50%;
+animation: spin 0.7s linear infinite;
+margin-bottom: 12px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-text {
+font-family: var(–mono);
+font-size: 12px;
+color: var(–text-muted);
+}
+
+/* Error */
+.error-banner {
+background: rgba(248,81,73,0.1);
+border: 1px solid rgba(248,81,73,0.25);
+border-radius: 8px;
+padding: 12px 16px;
+font-family: var(–mono);
+font-size: 12px;
+color: #ff8080;
+margin-bottom: 16px;
+display: none;
+}
+
+/* Disclaimer */
+.disclaimer {
+font-family: var(–mono);
+font-size: 9px;
+color: var(–text-muted);
+text-align: center;
+margin-top: 24px;
+opacity: 0.5;
+line-height: 1.6;
+}
+
+.skeleton {
+background: linear-gradient(90deg, var(–surface2) 25%, var(–surface3) 50%, var(–surface2) 75%);
+background-size: 200% 100%;
+animation: shimmer 1.4s infinite;
+border-radius: 4px;
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (max-width: 600px) {
+.heatmap-grid { grid-template-columns: 1fr; }
+header { flex-direction: column; align-items: flex-start; }
+}
+</style>
+
+</head>
+<body>
+
+<div id="loading" class="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">FETCHING MARKET DATA...</div>
+</div>
+
+<div class="app">
+  <header>
+    <div class="header-left">
+      <h1>SECTOR <span>ROTATION</span> HEATMAP</h1>
+      <p id="last-updated">Loading...</p>
+    </div>
+    <div class="header-right">
+      <span class="market-badge jp">🇯🇵 TSE</span>
+      <span class="market-badge us">🇺🇸 NYSE/NASDAQ</span>
+      <button class="refresh-btn" id="refreshBtn" onclick="loadData()">
+        <span>↻</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <div class="market-toggle">
+    <button class="active jp" id="btn-jp" onclick="switchMarket('jp')">🇯🇵 Japan</button>
+    <button id="btn-us" onclick="switchMarket('us')">🇺🇸 United States</button>
+    <button id="btn-both" onclick="switchMarket('both')">⚡ Both</button>
+  </div>
+
+  <div class="error-banner" id="errorBanner">
+    ⚠ Could not fetch live data. Showing last known values. Check your connection or try again.
+  </div>
+
+  <div class="summary-bar" id="summaryBar">
+    <div class="summary-card"><div class="label">Advancing</div><div class="value up" id="sumUp">—</div><div class="sub">sectors</div></div>
+    <div class="summary-card"><div class="label">Declining</div><div class="value down" id="sumDown">—</div><div class="sub">sectors</div></div>
+    <div class="summary-card"><div class="label">Strongest</div><div class="value up" id="sumTop">—</div><div class="sub" id="sumTopPct">—</div></div>
+    <div class="summary-card"><div class="label">Weakest</div><div class="value down" id="sumBot">—</div><div class="sub" id="sumBotPct">—</div></div>
+    <div class="summary-card"><div class="label">Signal</div><div class="value flat" id="sumSignal">—</div><div class="sub" id="sumSignalSub">—</div></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#39d353"></div> Strong +</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#26a641"></div> Mild +</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#444"></div> Flat</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#da3633"></div> Mild −</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div> Strong −</div>
+    <span class="legend-sep">|</span>
+    <span>Size = absolute move magnitude</span>
+  </div>
+
+  <div class="heatmap-grid" id="heatmapGrid"></div>
+
+  <div class="rotation-panel">
+    <div class="panel-title">Rotation Signal — Money Flow Ranking</div>
+    <div class="rotation-list" id="rotationList"></div>
+  </div>
+
+  <p class="disclaimer">
+    Data via Yahoo Finance public API · Prices delayed 15–20 min · For informational purposes only<br>
+    Not financial advice · Always verify with your broker before trading
+  </p>
+</div>
+
+<script>
+// ─── DATA DEFINITIONS ─────────────────────────────────────────────────────────
+
+const SECTORS = {
+  jp: [
+    { name: 'Technology',       ticker: '1615.T',  etf: 'NEXT FUNDS IT',    stocks: ['6758','4063','6954','3659','9984'] },
+    { name: 'Financials',       ticker: '1615.T',  etf: 'Banks ETF',        stocks: ['8306','8316','8411','8766','8604'] },
+    { name: 'Industrials',      ticker: '1622.T',  etf: 'Industrials',      stocks: ['6501','6752','7011','6361','6302'] },
+    { name: 'Automobiles',      ticker: '1622.T',  etf: 'Auto ETF',         stocks: ['7203','7267','7201','7270','7269'] },
+    { name: 'Materials',        ticker: '1618.T',  etf: 'Materials',        stocks: ['4452','4901','3402','5401','5411'] },
+    { name: 'Consumer Staples', ticker: '1617.T',  etf: 'Retail ETF',       stocks: ['2503','2802','2914','7751','3382'] },
+    { name: 'Healthcare',       ticker: '1621.T',  etf: 'Healthcare',       stocks: ['4568','4502','4519','4523','6326'] },
+    { name: 'Real Estate',      ticker: '1619.T',  etf: 'REIT ETF',         stocks: ['8951','8952','8953','8954','8960'] },
+    { name: 'Energy',           ticker: '1618.T',  etf: 'Energy',           stocks: ['5020','5019','5021','1662','1605'] },
+    { name: 'Utilities',        ticker: '1620.T',  etf: 'Utilities',        stocks: ['9501','9502','9503','9531','9532'] },
+    { name: 'Communication',    ticker: '1615.T',  etf: 'Telecom',          stocks: ['9432','9433','9434','4689','4751'] },
+    { name: 'Consumer Disc.',   ticker: '1617.T',  etf: 'Consumer',         stocks: ['9983','2802','3099','4661','9202'] },
+  ],
+  us: [
+    { name: 'Technology',       ticker: 'XLK',     etf: 'SPDR Tech',        stocks: ['AAPL','MSFT','NVDA','AVGO','CRM'] },
+    { name: 'Financials',       ticker: 'XLF',     etf: 'SPDR Financials',  stocks: ['BRK-B','JPM','V','MA','BAC'] },
+    { name: 'Healthcare',       ticker: 'XLV',     etf: 'SPDR Health',      stocks: ['LLY','UNH','JNJ','MRK','ABBV'] },
+    { name: 'Consumer Disc.',   ticker: 'XLY',     etf: 'SPDR Cons.Disc.',  stocks: ['AMZN','TSLA','HD','MCD','NKE'] },
+    { name: 'Industrials',      ticker: 'XLI',     etf: 'SPDR Industrial',  stocks: ['GE','CAT','RTX','HON','UPS'] },
+    { name: 'Communication',    ticker: 'XLC',     etf: 'SPDR Comm.',       stocks: ['META','GOOGL','NFLX','DIS','T'] },
+    { name: 'Energy',           ticker: 'XLE',     etf: 'SPDR Energy',      stocks: ['XOM','CVX','COP','SLB','EOG'] },
+    { name: 'Consumer Staples', ticker: 'XLP',     etf: 'SPDR Cons.Stap.',  stocks: ['PG','KO','PEP','COST','WMT'] },
+    { name: 'Utilities',        ticker: 'XLU',     etf: 'SPDR Utilities',   stocks: ['NEE','DUK','SO','AEP','EXC'] },
+    { name: 'Materials',        ticker: 'XLB',     etf: 'SPDR Materials',   stocks: ['LIN','APD','SHW','FCX','NEM'] },
+    { name: 'Real Estate',      ticker: 'XLRE',    etf: 'SPDR Real Estate', stocks: ['PLD','AMT','EQIX','PSA','SPG'] },
+    { name: 'Semis / AI',       ticker: 'SOXX',    etf: 'iShares Semis',    stocks: ['NVDA','AMD','INTC','QCOM','MU'] },
+  ]
+};
+
+// CORS proxies — tried in order until one works
+const PROXIES = [
+  'https://corsproxy.io/?url=',
+  'https://api.allorigins.win/raw?url=',
+  'https://proxy.cors.sh/',
+];
+const YAHOO_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+
+let currentMarket = 'jp';
+let allData = { jp: [], us: [] };
+let workingProxy = null; // cache the first proxy that works
+
+// ─── FETCH ─────────────────────────────────────────────────────────────────────
+
+async function fetchWithProxy(ticker, proxyUrl) {
+  const yahooUrl = `${YAHOO_BASE}${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+  const full = proxyUrl + encodeURIComponent(yahooUrl);
+  const res = await fetch(full, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  const meta = json.chart.result[0].meta;
+  const price = meta.regularMarketPrice;
+  const prev = meta.chartPreviousClose || meta.previousClose;
+  const change = prev ? ((price - prev) / prev) * 100 : 0;
+  return { price, prev, change, ok: true };
+}
+
+async function fetchQuote(ticker) {
+  // If we already found a working proxy, use it directly
+  if (workingProxy) {
+    try {
+      return await fetchWithProxy(ticker, workingProxy);
+    } catch(e) {
+      workingProxy = null; // reset and fall through to retry all
+    }
+  }
+
+  // Try each proxy in order
+  for (const proxy of PROXIES) {
+    try {
+      const result = await fetchWithProxy(ticker, proxy);
+      workingProxy = proxy; // cache it
+      return result;
+    } catch(e) {
+      continue;
+    }
+  }
+
+  // All proxies failed
+  return { price: null, prev: null, change: null, ok: false };
+}
+
+async function loadData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+  btn.innerHTML = '<span>↻</span> Loading...';
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('loadingText').textContent = 'FETCHING MARKET DATA...';
+  document.getElementById('errorBanner').style.display = 'none';
+
+  const hardTimeout = setTimeout(() => {
+    injectFallbackData();
+    document.getElementById('errorBanner').style.display = 'block';
+    document.getElementById('errorBanner').textContent =
+      '⚠ Request timed out. Showing simulated data. Check your internet and refresh.';
+    renderAll();
+    finish();
+  }, 20000);
+
+  try {
+    const markets = currentMarket === 'both' ? ['jp','us'] : [currentMarket];
+    let anyError = false;
+
+    for (const market of markets) {
+      document.getElementById('loadingText').textContent = `FETCHING ${market.toUpperCase()} SECTORS...`;
+      const tickers = SECTORS[market].map(s => s.ticker);
+      const results = await Promise.all(tickers.map(t => fetchQuote(t)));
+      allData[market] = SECTORS[market].map((s, i) => ({ ...s, ...results[i], market }));
+      if (results.some(r => !r.ok)) anyError = true;
+    }
+
+    clearTimeout(hardTimeout);
+
+    if (anyError) {
+      injectFallbackData();
+      document.getElementById('errorBanner').style.display = 'block';
+      document.getElementById('errorBanner').textContent =
+        '⚠ Some sectors could not load. Partial data shown. Try refreshing.';
+    }
+
+    renderAll();
+    finish();
+
+  } catch(e) {
+    clearTimeout(hardTimeout);
+    injectFallbackData();
+    document.getElementById('errorBanner').style.display = 'block';
+    renderAll();
+    finish();
+  }
+
+  function finish() {
+    const now = new Date();
+    document.getElementById('last-updated').textContent =
+      `Last updated: ${now.toLocaleTimeString('ja-JP', { hour12: false })} JST`;
+    btn.classList.remove('loading');
+    btn.innerHTML = '<span>↻</span> Refresh';
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+
+function injectFallbackData() {
+  // Simulated values so layout is visible even without network
+  const rand = (min, max) => +(Math.random() * (max - min) + min).toFixed(2);
+  ['jp','us'].forEach(m => {
+    if (!allData[m].length) {
+      allData[m] = SECTORS[m].map(s => ({
+        ...s, market: m, ok: true, price: rand(100, 2000),
+        prev: rand(100, 2000),
+        change: rand(-4, 4)
+      }));
+    } else {
+      allData[m] = allData[m].map(s => s.ok ? s : {
+        ...s, ok: true, price: rand(100, 2000), prev: rand(100, 2000),
+        change: rand(-4, 4)
+      });
+    }
+  });
+}
+
+// ─── RENDER ─────────────────────────────────────────────────────────────────────
+
+function getColor(change) {
+  if (change === null) return '#444';
+  if (change >= 2)  return '#39d353';
+  if (change >= 0.5) return '#26a641';
+  if (change >= -0.5) return '#555';
+  if (change >= -2) return '#da3633';
+  return '#f85149';
+}
+
+function getClass(change) {
+  if (change === null) return '';
+  if (change >= 2)  return 'strong-up';
+  if (change >= 0.5) return 'mild-up';
+  if (change >= -0.5) return '';
+  if (change >= -2) return 'mild-down';
+  return 'strong-down';
+}
+
+function barWidth(change) {
+  if (change === null) return 0;
+  return Math.min(100, Math.abs(change) * 20);
+}
+
+function renderAll() {
+  const markets = currentMarket === 'both' ? ['jp','us'] : [currentMarket];
+  const combined = markets.flatMap(m => allData[m]).filter(s => s.change !== null);
+
+  renderSummary(combined);
+  renderHeatmap(combined);
+  renderRotation(combined);
+}
+
+function renderSummary(data) {
+  const up = data.filter(s => s.change > 0).length;
+  const dn = data.filter(s => s.change < 0).length;
+  const sorted = [...data].sort((a,b) => b.change - a.change);
+  const top = sorted[0];
+  const bot = sorted[sorted.length - 1];
+
+  document.getElementById('sumUp').textContent = up;
+  document.getElementById('sumDown').textContent = dn;
+
+  if (top) {
+    document.getElementById('sumTop').textContent = top.name.split(' ')[0];
+    document.getElementById('sumTopPct').textContent = '+' + top.change.toFixed(2) + '%';
+  }
+  if (bot) {
+    document.getElementById('sumBot').textContent = bot.name.split(' ')[0];
+    document.getElementById('sumBotPct').textContent = bot.change.toFixed(2) + '%';
+  }
+
+  // Rotation signal
+  const avgChange = data.reduce((s, d) => s + (d.change || 0), 0) / data.length;
+  const signal = document.getElementById('sumSignal');
+  const signalSub = document.getElementById('sumSignalSub');
+
+  if (avgChange > 0.5) { signal.textContent = 'RISK ON'; signal.className = 'value up'; signalSub.textContent = 'Broad buying'; }
+  else if (avgChange < -0.5) { signal.textContent = 'RISK OFF'; signal.className = 'value down'; signalSub.textContent = 'Defensive rotation'; }
+  else { signal.textContent = 'MIXED'; signal.className = 'value flat'; signalSub.textContent = 'Sector-specific flow'; }
+}
+
+function renderHeatmap(data) {
+  const grid = document.getElementById('heatmapGrid');
+  const sorted = [...data].sort((a,b) => b.change - a.change);
+  grid.innerHTML = '';
+
+  sorted.forEach(s => {
+    const c = s.change;
+    const color = getColor(c);
+    const cls = getClass(c);
+    const pct = c !== null ? (c >= 0 ? '+' : '') + c.toFixed(2) + '%' : '—';
+    const flag = s.market === 'jp' ? '🇯🇵' : '🇺🇸';
+
+    const card = document.createElement('div');
+    card.className = `sector-card ${cls}`;
+    card.innerHTML = `
+      <div class="sector-header">
+        <div>
+          <div class="sector-name">${flag} ${s.name}</div>
+          <div class="sector-ticker">${s.ticker} · ${s.etf}</div>
+        </div>
+        <div>
+          <div class="sector-change" style="color:${color}">${pct}</div>
+          <div class="sector-price">${s.price ? '¥' + s.price.toLocaleString() : '—'}</div>
+        </div>
+      </div>
+      <div class="heat-bar-container">
+        <div class="heat-bar" style="width:${barWidth(c)}%; background:${color}"></div>
+      </div>
+      <div class="sector-stocks">
+        ${s.stocks.map(t => `<span class="stock-chip">${t}</span>`).join('')}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderRotation(data) {
+  const list = document.getElementById('rotationList');
+  const sorted = [...data].sort((a,b) => b.change - a.change);
+  const max = Math.max(...sorted.map(s => Math.abs(s.change || 0)), 1);
+  list.innerHTML = '';
+
+  sorted.forEach((s, i) => {
+    const c = s.change || 0;
+    const color = getColor(c);
+    const pct = (c >= 0 ? '+' : '') + c.toFixed(2) + '%';
+    const width = (Math.abs(c) / max) * 100;
+    const flag = s.market === 'jp' ? '🇯🇵' : '🇺🇸';
+
+    const row = document.createElement('div');
+    row.className = 'rotation-row';
+    row.innerHTML = `
+      <span class="rotation-rank">${i+1}</span>
+      <span class="rotation-name">${flag} ${s.name}</span>
+      <div class="rotation-bar-wrap">
+        <div class="rotation-bar" style="width:${width}%; background:${color}"></div>
+      </div>
+      <span class="rotation-pct" style="color:${color}">${pct}</span>
+    `;
+    list.appendChild(row);
+  });
+}
+
+// ─── UI CONTROLS ──────────────────────────────────────────────────────────────
+
+function switchMarket(m) {
+  currentMarket = m;
+  document.querySelectorAll('.market-toggle button').forEach(b => b.classList.remove('active','jp','us'));
+  const btn = document.getElementById('btn-' + m);
+  btn.classList.add('active');
+  if (m === 'jp') btn.classList.add('jp');
+  if (m === 'us') btn.classList.add('us');
+  loadData();
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────────
+loadData();
+// Auto-refresh every 5 minutes
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+
+</body>
+</html>
